@@ -65,3 +65,11 @@ def update(req: UserCreateRequest, token: str = Depends(get_auth_token)):
     # print(req)
     model.update_user(token, req.user_name, req.leader_card_id)
     return {}
+
+# Room APIs
+
+
+class RoomCreateResponce(BaseModel):
+    room_id: int
+
+#@app.post("/room/create", response_model=room_id) -> RoomCreateResponce:

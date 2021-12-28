@@ -70,3 +70,96 @@ def update_user(token: str, name: str, leader_card_id: int) -> None:
         )
         return
         pass
+
+
+# 以下\roomリクエスト用の関数群
+# sqlのtableに関して
+# rooms | CREATE TABLE `rooms` (
+#  `id` bigint NOT NULL AUTO_INCREMENT,
+#  `live_id` int NOT NULL,
+#  `status` int NOT NULL,
+#  PRIMARY KEY (`id`)
+#)
+# members | CREATE TABLE `members` (
+#  `room_id` bigint NOT NULL,
+#  `user_id` bigint NOT NULL,
+#  `difficulty` int NOT NULL,
+#  `score` bigint DEFAULT NULL,
+#  `judge0` bigint DEFAULT NULL, //perfect
+#  `judge1` bigint DEFAULT NULL, //great
+#  `judge2` bigint DEFAULT NULL, //good
+#  `judge3` bigint DEFAULT NULL, //bad
+#  `judge4` bigint DEFAULT NULL, //miss
+#  PRIMARY KEY (`room_id`,`user_id`)
+#) 
+
+class Livedifficulty(enum):
+    normal = 1
+    hard = 2
+
+
+class JoinRoomResult(enum):
+    Ok = 1
+    RoomFull = 2
+    Disbanded = 3
+    OtherError = 4
+
+
+class WaitRoomStatus(enum):
+    Waiting = 1
+    LiveStart = 2
+    Dissolution = 3
+
+class RoomInfo(BaseModel):
+    room_id: int
+    live_id: int
+    joined_user_count : int
+    max_user_count: int
+
+class RoomUser(BaseModel):
+    user_id: int
+    name: str 
+    leader_card_id: int
+    select_difficulty:LiveDifficulty
+    is_me: bool
+    is_host: bool
+
+class ResultUser(BaseModel):
+    user_id: int
+    judge_count_list: list[int]
+    score: int
+def new_room(uid: int , lid: int) -> int:
+    with engine.begin() as conn:
+        result = conn.execute(
+            text(
+                "INSERT INTO `rooms` (live_id, status) VALUES (:lid, 1)"
+            ),
+            {"lid":lid},
+        )
+    return result.lastrowid
+
+def append_member(rid:int, uid:int, dif: int) -> JoinRoomResult:
+    with engine.begin() as conn:
+        result = conn.execute(
+            text("SELECT * FROM `rooms` WHERE `id` = :room_id"),
+            {"room_id":rid}
+        )
+        if(result.one() is NULL):
+            return JoinRoomResult(4)
+        if(result.one().state == 1):
+            result = conn.execute(
+                text("SELECT COUNT(*) FROM `members` WHERE `room_id` = :roomid")
+                {"room_id":rid}
+            )
+            if(result == 4):
+                return JoinRoomResult(2)
+            conn.execute(
+                text(
+                    "INSERT INTO `members` (room_id, user_id, difficulty) VALUES (:room_id, :user_id, :difficulty)"
+                ),
+                {"room_id": rid, "user_id": uid, "difficulty":dif},
+            )
+            return JoinRoomResult(1)
+        return JoinRoomResult(3)
+
+
