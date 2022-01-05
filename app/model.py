@@ -68,8 +68,8 @@ def update_user(token: str, name: str, leader_card_id: int) -> None:
             ),
             dict(name=name, leader_card_id=leader_card_id, token=token),
         )
-        return
-        pass
+    return
+    pass
 
 
 # 以下\roomリクエスト用の関数群
@@ -78,6 +78,8 @@ def update_user(token: str, name: str, leader_card_id: int) -> None:
 #  `id` bigint NOT NULL AUTO_INCREMENT,
 #  `live_id` int NOT NULL,
 #  `status` int NOT NULL,
+#  `host` bigint NOT NULL,
+#  `count` int NOT NULL,
 #  PRIMARY KEY (`id`)
 #)
 # members | CREATE TABLE `members` (
@@ -93,19 +95,19 @@ def update_user(token: str, name: str, leader_card_id: int) -> None:
 #  PRIMARY KEY (`room_id`,`user_id`)
 #) 
 
-class Livedifficulty(enum):
+class LiveDifficulty(Enum):
     normal = 1
     hard = 2
 
 
-class JoinRoomResult(enum):
+class JoinRoomResult(Enum):
     Ok = 1
     RoomFull = 2
     Disbanded = 3
     OtherError = 4
 
 
-class WaitRoomStatus(enum):
+class WaitRoomStatus(Enum):
     Waiting = 1
     LiveStart = 2
     Dissolution = 3
@@ -128,15 +130,7 @@ class ResultUser(BaseModel):
     user_id: int
     judge_count_list: list[int]
     score: int
-def new_room(uid: int , lid: int) -> int:
-    with engine.begin() as conn:
-        result = conn.execute(
-            text(
-                "INSERT INTO `rooms` (live_id, status) VALUES (:lid, 1)"
-            ),
-            {"lid":lid},
-        )
-    return result.lastrowid
+
 
 def append_member(rid:int, uid:int, dif: int) -> JoinRoomResult:
     with engine.begin() as conn:
@@ -144,22 +138,165 @@ def append_member(rid:int, uid:int, dif: int) -> JoinRoomResult:
             text("SELECT * FROM `rooms` WHERE `id` = :room_id"),
             {"room_id":rid}
         )
-        if(result.one() is NULL):
+        if(result.one() is None):
             return JoinRoomResult(4)
-        if(result.one().state == 1):
-            result = conn.execute(
-                text("SELECT COUNT(*) FROM `members` WHERE `room_id` = :roomid")
-                {"room_id":rid}
-            )
-            if(result == 4):
-                return JoinRoomResult(2)
+        if(result.one().count == 4):
+            return JoinRoomResult(2)
+        if(result.one().status == 1):
             conn.execute(
                 text(
                     "INSERT INTO `members` (room_id, user_id, difficulty) VALUES (:room_id, :user_id, :difficulty)"
                 ),
                 {"room_id": rid, "user_id": uid, "difficulty":dif},
             )
+            conn.execute(
+                text(
+                    "UPDATE `rooms` `count` = `count` + 1, WHERE id = :room_id"
+                ),
+                {"room_id": rid},
+            )
             return JoinRoomResult(1)
-        return JoinRoomResult(3)
+    return JoinRoomResult(3)
 
 
+def new_room(uid: int , lid: int, dif: int) -> int:
+    with engine.begin() as conn:
+        result = conn.execute(
+            text(
+                "INSERT INTO `rooms` (live_id, status, host, count) VALUES (:lid, 1, :user_id, 1)"
+            ),
+            {"lid":lid, "user_id" :uid},
+        )
+    append_member(result.lastrowid, uid, dif)
+    return result.lastrowid
+
+def get_rooms(lid :int) -> list[RoomInfo]:
+    with engine.begin() as conn:
+        if(lid == 0):
+            result = conn.execute(
+                text(
+                    "SELECT * FROM `rooms` WHERE `status` = 1 AND `count` < 4"
+                )
+            )
+        else:
+            result = conn.execute(
+                text(
+                    "SELECT * FROM `rooms` WHERE `status` = 1 AND `count` < 4 AND `live_id` = :live_id"
+                ),
+                {"live_id": lid}
+            )
+    res = list([])
+    rows = result.fetchall()
+    for row in rows:
+        res.append(RoomInfo(room_id = row.id,  live_id = row.live_id, joined_user_count = row.count, max_user_count = 4))
+    return res
+
+def get_members(rid :int, uid :int) -> list[RoomUser]:
+    with engine.begin() as conn:
+        result = conn.execute(
+            text(
+                "SELECT * FROM `members` WHERE `room_id` = :room_id"
+            ),
+            {"room_id": rid}
+        )
+        res = list([])
+        rows = result.fetchall()
+        
+        hres = conn.execute(
+            text("SELECT * FROM `rooms` WHERE `id` = :rid"),
+            {"rid" : rid}
+        )
+        host = hres.one.host
+        for row in rows:
+            isme = 0
+            ishost = 0
+            if(row.user_id == uid):
+                imse = 1
+            if(row.user_id == host):
+                ishost = 1
+            ures = conn.execute(
+                text("SELECT * FROM `user` WHERE `id` = :uid"),
+                {"uid" : row.user_id}
+            )
+            user = ures.one
+            res.append(RoomUser(
+                user_id = row.user_id, 
+                name = user.name, 
+                leader_card_id = user.leader_card_id, 
+                select_difficulty = Livedifficulty(row.difficulty),
+                is_me =isme,
+                is_host = ishost
+                ))
+    return res
+
+def vs_start(rid :int) -> None:
+    with engine.begin() as conn:
+        result = conn.execute(
+            text("UPDATE `rooms` SET `status` = 2 WHERE id = :rid"),
+            {"rid" : rid}
+        )
+    return 
+
+def set_score(rid : int, judge : list[int], score: int) -> None:
+    with engine.begin() as conn:
+        result = conn.execute(
+            text("UPDATE `members` SET `score` = :score, `judge0` = j0, `judge1` = j1, `judge2` = j2, `judge3` = j3, `judge4` = j4, WHERE id = :rid"),
+            {"score" : score, "j0":judge[0], "j1":judge[1], "j2":judge[2], "j3":judge[3], "j4":judge[4], "rid":rid}
+        )
+    return 
+
+def get_score(rid: int) -> list[ResultUser]:
+    with engine.begin() as conn:
+        result = conn.execute(
+            text("SELECT * FROM `members` WHERE `room_id` = :rid AND `score' IS NULL"),
+            {"rid" : rid}
+        )
+        if(result.fetchall() is not None):
+            return list([])
+        res = conn.execute(
+            text("SELECT * FROM `members` WHERE `room_id` = :rid"),
+            {"rid" : rid}
+        )
+    rows = res.fetchall()
+    res = list([])
+    for row in rows:
+        judge = list([row.judge0, row.judge1, row.judge2, row.judge3, row.judge4])
+        res.append(ResultUser( user_id = row.user_id, judge_count_list = judge, score = row.score))
+    return res
+
+def leave_room(rid: int, uid: int):
+    with engine.begin() as conn:
+        hres = conn.execute(
+            text("SELECT * FROM `rooms` WHERE `id` = :rid"),
+            {"rid" : rid}
+        )
+        if(hres.one.host == uid):
+            conn.execute(
+                text(
+                    "UPDATE `rooms` `status` = 3, WHERE id = :room_id"
+                ),
+                {"room_id": rid},
+            )
+        conn.execute(
+            text(
+                "DELETE * FROM `members` WHERE `room_id` = :rid AND `user_id` = :uid"
+            ),
+            {"rid" :rid, "uid" :uid}
+        )
+        res =conn.execute(
+                text(
+                    "SELECT * FROM `rooms` WHERE id = :room_id"
+                ),
+                {"room_id": rid},
+            )
+        if(res.fetchall()[0].count == 0):
+            conn.execute(
+                text("DELETE * FROM `rooms` WHERE `id` = :room_id"),
+                {"room_id" :rid}
+            )
+        conn.execute(
+                text(
+                    "UPDATE `rooms` `count` = :dec, WHERE id = :room_id"
+                ),
+                {"dec":res.fetchall()[0].count - 1 ,"room_id": rid},
+            )
