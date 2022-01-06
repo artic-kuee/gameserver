@@ -3,7 +3,7 @@ from typing import List
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.security.http import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel
+from pydantic import (BaseModel, conlist)
 
 from . import model
 from .model import (
@@ -97,7 +97,7 @@ def create(
 ) -> RoomCreateResponce:
     user = model.get_user_by_token(token)
     return RoomCreateResponce(
-        model.new_room(user.id, req.live_id, req.select_difficulty.value)
+        room_id = model.new_room(user.id, req.live_id, req.select_difficulty.value)
     )
 
 
@@ -106,23 +106,25 @@ class RoomListRequest(BaseModel):
 
 
 class RoomListResponce(BaseModel):
-    room_info_list: List[int]
+    room_info_list: conlist(item_type=model.RoomInfo)
 
 
 @app.post("/room/list", response_model=RoomListResponce)
 def list(req: RoomListRequest) -> RoomListResponce:
-    return model.get_rooms(req.live_id)
+    return RoomListResponce(room_info_list = model.get_rooms(req.live_id))
 
 
 class RoomJoinRequest(BaseModel):
     room_id: int
     select_difficulty: LiveDifficulty
 
+class RoomJoinResponce(BaseModel):
+    join_room_result : JoinRoomResult
 
-@app.post("/room/join", response_model=JoinRoomResult)
-def join(req: RoomJoinRequest, token: str = Depends(get_auth_token)) -> JoinRoomResult:
+@app.post("/room/join", response_model=RoomJoinResponce)
+def join(req: RoomJoinRequest, token: str = Depends(get_auth_token)) -> RoomJoinResponce:
     user = model.get_user_by_token(token)
-    return model.append_member(req.room_id, user.id, req.select_difficulty)
+    return RoomJoinResponce(join_room_result = model.append_member(req.room_id, user.id, req.select_difficulty.value))
 
 
 class RoomWaitRequest(BaseModel):
@@ -141,24 +143,24 @@ class RoomStartRequest(BaseModel):
     room_id: int
 
 
-@app.post("/room/start", response_model=None)
+@app.post("/room/start", response_model=Empty)
 def start(req: RoomStartRequest, token: str = Depends(get_auth_token)) -> None:
     user = model.get_user_by_token(token)
     model.vs_start(req.room_id, user.id)
-    return
+    return {}
 
 
 class RoomEndRequest(BaseModel):
     room_id: int
-    judge_count_list: List[int]
+    judge_count_list: conlist(item_type=int, min_items=5, max_items=5)
     score: int
 
 
-@app.post("/room/end", response_model=None)
+@app.post("/room/end", response_model=Empty)
 def end(req: RoomEndRequest, token: str = Depends(get_auth_token)) -> None:
     user = model.get_user_by_token(token)
     model.set_score(req.room_id, user.id, req.judge_count_list, req.score)
-    return
+    return {}
 
 
 class RoomResultRequest(BaseModel):
@@ -166,7 +168,7 @@ class RoomResultRequest(BaseModel):
 
 
 class RoomResultResponce(BaseModel):
-    result_user_list: List[ResultUser]
+    result_user_list: conlist(item_type=ResultUser)
 
 
 @app.post("/room/result", response_model=RoomResultResponce)
@@ -178,8 +180,8 @@ class RoomLeaveRequest(BaseModel):
     room_id: int
 
 
-@app.post("/room/leave", response_model=None)
-def leave(req: RoomLeaveRequest, token: str = Depends(get_auth_token)) -> None:
+@app.post("/room/leave", response_model=Empty)
+def leave(req: RoomLeaveRequest, token: str = Depends(get_auth_token)) -> Empty:
     user = model.get_user_by_token(token)
     model.leave_room(req.room_id, user.id)
-    return
+    return {}
