@@ -139,12 +139,18 @@ class ResultUser(BaseModel):
 def append_member(rid: int, uid: int, dif: int) -> JoinRoomResult:
     with engine.begin() as conn:
         result = conn.execute(
-            text("SELECT * FROM `rooms` WHERE `id` = :room_id"), {"room_id": rid}
+            text("SELECT * FROM `rooms` WHERE `id` = :room_id FOR UPDATE"), {"room_id": rid}
         )
         res = result.one()
         if res is None:
+            res = conn.execute(
+                text("COMMIT")
+            )
             return JoinRoomResult(4)
         if res.count == 4:
+            res = conn.execute(
+                text("COMMIT")
+            )
             return JoinRoomResult(2)
         if res.status == 1:
             conn.execute(
@@ -156,6 +162,9 @@ def append_member(rid: int, uid: int, dif: int) -> JoinRoomResult:
             conn.execute(
                 text("UPDATE `rooms` SET `count` = :count WHERE `id` = :room_id"),
                 {"count": res.count + 1,"room_id": rid},
+            )
+            res = conn.execute(
+                text("COMMIT")
             )
             return JoinRoomResult(1)
     return JoinRoomResult(3)
@@ -260,7 +269,7 @@ def vs_start(rid: int, uid: int) -> None:
 
 def set_score(rid: int, uid: int, judge: list[int], score: int) -> None:
     with engine.begin() as conn:
-        result = conn.execute(
+        conn.execute(
             text(
                 "UPDATE `members` SET `score` = :score, `judge0` = :j0, `judge1` = :j1, `judge2` = :j2, `judge3` = :j3, `judge4` = :j4 WHERE `room_id` = :rid AND `user_id` = :uid"
             ),
@@ -304,10 +313,10 @@ def get_score(rid: int) -> list[ResultUser]:
     return res
 
 
-def leave_room(rid: int, uid: int):
+def leave_room(rid: int, uid: int)-> None:
     with engine.begin() as conn:
         hres = conn.execute(
-            text("SELECT * FROM `rooms` WHERE `id` = :rid"), {"rid": rid}
+            text("SELECT * FROM `rooms` WHERE `id` = :rid FOR UPDATE"), {"rid": rid}
         )
         if hres.one().host == uid:
             conn.execute(
@@ -322,6 +331,9 @@ def leave_room(rid: int, uid: int):
             text("SELECT * FROM `rooms` WHERE id = :room_id"),
             {"room_id": rid},
         )
+        res = conn.execute(
+            text("COMMIT")
+        )
         count = res.fetchall()[0].count
         if count == 1:
             conn.execute(
@@ -331,3 +343,4 @@ def leave_room(rid: int, uid: int):
             text("UPDATE `rooms` SET `count` = :dec WHERE id = :room_id"),
             {"dec": count - 1, "room_id": rid},
         )
+    return
