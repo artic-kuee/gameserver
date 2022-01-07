@@ -143,12 +143,12 @@ def append_member(rid: int, uid: int, dif: int) -> JoinRoomResult:
         )
         res = result.one()
         if res is None:
-            res = conn.execute(
+            conn.execute(
                 text("COMMIT")
             )
             return JoinRoomResult(4)
         if res.count == 4:
-            res = conn.execute(
+            conn.execute(
                 text("COMMIT")
             )
             return JoinRoomResult(2)
@@ -163,7 +163,7 @@ def append_member(rid: int, uid: int, dif: int) -> JoinRoomResult:
                 text("UPDATE `rooms` SET `count` = :count WHERE `id` = :room_id"),
                 {"count": res.count + 1,"room_id": rid},
             )
-            res = conn.execute(
+            conn.execute(
                 text("COMMIT")
             )
             return JoinRoomResult(1)
@@ -331,7 +331,7 @@ def leave_room(rid: int, uid: int)-> None:
             text("SELECT * FROM `rooms` WHERE id = :room_id"),
             {"room_id": rid},
         )
-        res = conn.execute(
+        conn.execute(
             text("COMMIT")
         )
         count = res.fetchall()[0].count
